@@ -1,0 +1,155 @@
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local RunService = game:GetService("RunService")
+local StarterGui = game:GetService("StarterGui")
+local Players = game:GetService("Players")
+
+local LP = Players.LocalPlayer
+local roles = {}
+local roleMap = {}
+
+local DEBUG = true
+local LOG_LEVEL = 3 -- 1 = errors, 2 = warnings, 3 = info
+
+local function log(level, ...)
+	if not DEBUG or level > LOG_LEVEL then return end
+	print("[MM2 ESP]", ...)
+end
+
+local function errorLog(...) log(1, ...) end
+local function warnLog(...) log(2, ...) end
+local function infoLog(...) log(3, ...) end
+
+StarterGui:SetCore("SendNotification", {
+	Title = "MM2 ESP Reworked",
+	Text = "hehehehe"	
+})
+
+local ColorLookup = {
+	Sheriff = Color3.fromRGB(0,0,200),
+	Murderer = Color3.fromRGB(200,0,0),
+	Hero = Color3.fromRGB(255,255,0),
+	Default = Color3.fromRGB(0, 225, 0)
+}
+
+local function getCharacter(player)
+	if not player then return end
+	return player.Character
+end
+
+local function getHighlight(character)
+	if not character then return end
+	return character:FindFirstChild("Highlight")
+end
+
+local function isAlive(playerName)
+	local data = roles[playerName]
+	if not data then return false end
+	if data.Killed or data.Dead then return false end
+	return true
+end
+
+local function ensureHighlight(player)
+	if player == LP then return end
+
+	local character = getCharacter(player)
+	if not character then return end
+
+	if getHighlight(character) then return end
+
+	local h = Instance.new("Highlight")
+	h.Name = "Highlight"
+	h.Parent = character
+
+	infoLog("Created highlight for", player.Name)
+end
+
+local function ensureAllHighlights()
+	for _, player in ipairs(Players:GetPlayers()) do
+		ensureHighlight(player)
+	end
+end
+
+local function rebuildRoleMap()
+	table.clear(roleMap)
+
+	for playerName, data in pairs(roles) do
+		if not data.Role then continue end
+		roleMap[data.Role] = playerName
+	end
+
+	infoLog("Rolemap update:", "roleMap")
+end
+
+local function getColor(playerName)
+	if not isAlive(playerName) then
+		return ColorLookup.Default
+	end
+
+	if playerName == roleMap.Sheriff then
+		return ColorLookup.Sheriff
+	end
+
+	if playerName == roleMap.Murderer then
+		return ColorLookup.Murderer
+	end
+
+	if playerName == roleMap.Hero then
+		return ColorLookup.Hero
+	end
+
+	return ColorLookup.Default
+end
+
+local function updatePlayerHighlight(player)
+	if player == LP then return end
+
+	local character = getCharacter(player)
+	if not character then return end
+
+	local highlight = getHighlight(character)
+	if not highlight then return end
+
+	local color = getColor(player.Name)
+	highlight.FillColor = color
+end
+
+
+local function updateAllHighlights()
+	for _, player in ipairs(Players:GetPlayers()) do
+		updatePlayerHighlight(player)
+	end
+end
+
+local remote = ReplicatedStorage:FindFirstChild("GetPlayerData", true)
+
+if not remote then
+	errorLog("Remote 'GetPlayerData' not found!")
+	return
+end
+
+local lastFetch = 0
+local FETCH_INTERVAL = 0.5
+
+local function fetchRoles()
+	local now = tick()
+	if now - lastFetch < FETCH_INTERVAL then return end
+	lastFetch = now
+
+	local success, result = pcall(function()
+		return remote:InvokeServer()
+	end)
+
+	if not success or not result then
+		warnLog("Failed to fetch roles")
+		return
+	end
+
+	roles = result
+	rebuildRoleMap()
+end
+
+RunService.RenderStepped:Connect(function()
+	fetchRoles()
+	ensureAllHighlights()
+	updateAllHighlights()
+end)
